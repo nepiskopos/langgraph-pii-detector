@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./src/pii_detector.py:graph"
+  },
+  "env": ".env"
+}
