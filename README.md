@@ -1,6 +1,8 @@
 # Personally Identifiable Information (PII) detector implemented in LangGraph
 
-This repository contains a custom Personally Identifiable Information (PII) detection pipeline built using LangGraph and powered by Azure OpenAI GPT-4o model.
+This repository contains a custom Personally Identifiable Information (PII) detection agent, developed using LangGraph and powered by Azure OpenAI GPT-4o model.
+
+This agent is meant to be combined with the respective pipeline code developed as an enhancement to Open WebUI, and can be found in [this repository](https://github.com/nepiskopos/open-webui-enhancements).
 
 The system is designed to identify sensitive personal data such as names, addresses, phone numbers, emails, and other common PII entities from unstructured text. It uses language model-driven reasoning combined with a graph-based flow for flexible and context-aware processing.
 
@@ -24,4 +26,4 @@ Use Cases
 
     Building secure AI pipelines with privacy-preserving layers
 
-This solution was developed during my time at [IBM](https://www.ibm.com), as part of the Digital Transformation project for the [National Bank of Greece (NBG)](https://www.nbg.gr/en/), where I was tasked with exploring and utilizing the LangGraph framework to meet complex enterprise needs.
+This solution is based on more feature-rich version, developed during my time at [IBM](https://www.ibm.com), as part of the Digital Transformation project for the [National Bank of Greece (NBG)](https://www.nbg.gr/en/), where I was tasked with exploring and utilizing the LangGraph framework to meet complex enterprise needs.
