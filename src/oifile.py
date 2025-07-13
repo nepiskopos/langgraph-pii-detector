@@ -1,41 +1,20 @@
+from typing import Any
+from pydantic_core import core_schema
 import re
+import html
+
 
 class OIFile:
     '''
-    This is a class for representing a user-uploaded
-    file object. It stores the file ID, the file name,
-    the file content and the length of the fiel content.
-    It also provides methods to access these attributes
-    and to build the document content by normalizing
-    newlines, replacing tabs with spaces, and collapsing
-    multiple spaces into a single space.
-
-    Attributes:
-    - id (str): Unique identifier for the file.
-    - name (str): Name of the file.
-    - content (str): Normalized content of the file.
-    - size (int): Size of the file content in bytes.
+    This is a class for representing a user-uploaded document
+    object. It stores the document ID, the document name, the
+    document mimetype, the document content and the content summary.
     '''
-    def __init__(self, id: str, name: str, content: str):
+    def __init__(self, id: str, name: str, type: str, content: str):
         self.id = id
         self.name = name
-        self.content = self._build_document(content)
-        self.size = len(self.content)
-
-    def __repr__(self) -> str:
-        return f"File(id={self.id}, name={self.name}, size={self.size} bytes)"
-
-    def _build_document(self, text: str) -> str:
-        # First normalize consecutive newlines to single newlines
-        document = re.sub(r'\n+', ' \n', text)
-
-        # Replace tabs with spaces
-        document = re.sub(r'\t', ' ', document)
-
-        # Replace multiple consecutive spaces with a single space
-        document = re.sub(r' +', ' ', document)
-
-        return document
+        self.type = type
+        self.content = self._build_content(content)
 
     def get_id(self) -> str:
         return self.id
@@ -43,25 +22,88 @@ class OIFile:
     def get_name(self) -> str:
         return self.name
 
+    def get_type(self) -> str:
+        return self.type
+
     def get_content(self) -> str:
         return self.content
 
     def get_size(self) -> int:
-        return self.size
+        return len(self.content)
+
+    def set_content(self, content: str) -> None:
+        self.content = content
+
+    def _build_content(self, text_content: str) -> str:
+        text = ''
+
+        if text_content:
+            text = text_content
+
+            # Step 1: Remove HTML comments
+            text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+            # Step 2: Remove HTML comments (duplicate step in original code)
+            text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+            # Step 3: Remove HTML tags
+            text = re.sub(r'<[^>]+>', '', text)
+
+            # Step 4: Decode HTML entities like &nbsp;
+            text = html.unescape(text)
+
+            # Step 5: Fix spacing issues
+            # Normalize multiple spaces
+            text = re.sub(r' +', ' ', text)
+
+            # Normalize newlines (no more than two consecutive)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+
+            # Step 6: Fix specific layout issues from the document
+            # Fix broken lines that should be together (like "Αριθμός Γ.Ε.ΜΗ .: 180526838000")
+            text = re.sub(r'([a-zA-Zα-ωΑ-Ω])\.\s+:', r'\1.:', text)
+
+            # Step 7: Remove extra spaces before punctuation
+            text = re.sub(r' ([.,:])', r'\1', text)
+
+            # Clean up trailing whitespace on each line
+            text = '\n'.join(line.rstrip() for line in text.splitlines())
+
+            # Clean up whitespaces at the beginning and ending of each string
+            text.strip()
+
+        return text
+
+    def __repr__(self) -> str:
+        return f"File(id={self.id}, name={self.name}, type={self.type}, size={len(self.content)} bytes)"
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, _source_type: Any, _handler: Any
+    ) -> core_schema.CoreSchema:
+        """Tell Pydantic how to serialize/deserialize OIFile objects."""
+        return core_schema.union_schema([
+            # Handle OIFile instance
+            core_schema.is_instance_schema(OIFile),
+            # Convert dict to OIFile
+            core_schema.chain_schema([
+                core_schema.dict_schema(),
+                core_schema.no_info_plain_validator_function(
+                    lambda d: OIFile(
+                        id=d.get("id"),
+                        name=d.get("name"),
+                        type=d.get("type"),
+                        content=d.get("content"),
+                    )
+                ),
+            ]),
+        ])
 
     def to_dict(self) -> dict:
-        """
-        Export the file object as a dictionary.
-        """
+        """Convert OIFile instance to a dictionary."""
         return {
-            'id': self.id,
-            'name': self.name,
-            'content': self.content,
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "content": self.content,
         }
-
-    def update_content(self, content: str) -> None:
-        """
-        Update the content of the file and recalculate its size.
-        """
-        self.content = self._build_document(content)
-        self.size = len(self.content)

@@ -1,10 +1,9 @@
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import AzureChatOpenAI
 import asyncio
-import json
 import logging
 
-from src.config import AZURE_OPENAI_MODEL_NAME, AZURE_OPENAI_API_VERSION
+from src.config import AZURE_OPENAI_MODEL_NAME, AZURE_OPENAI_API_VERSION, CHUNK_OVERLAP, CHUNK_SIZE
 from src.oifile import OIFile
 
 
@@ -26,12 +25,12 @@ async def get_llm():
         )
     return llm
 
-def get_logger(name: str="anonymizer-map-reduce") -> logging.Logger:
+def get_logger(name: str="pii-detector-map-reduce") -> logging.Logger:
     """
     Get a logger with the specified name. If no handlers are set, it will create a default StreamHandler.
 
     Args:
-        name (str): The name of the logger. Defaults to "anonymizer-map-reduce".
+        name (str): The name of the logger. Defaults to "pii-detector-map-reduce".
 
     Returns:
         logging.Logger: The configured logger instance.
@@ -61,52 +60,21 @@ def get_logger(name: str="anonymizer-map-reduce") -> logging.Logger:
 
     return logger
 
-async def mask_content(document: OIFile, file_ids: list[str], pii_items: list[str], semaphore: asyncio.Semaphore) -> OIFile:
-    """
-    Mask the content of a document based on previously identified PII items.
-    This function replaces the PII items in the document content with asterisks of the same length.
-
-    Args:
-        document (OIFile): The document to process.
-        file_ids (list[str]): List of file IDs corresponding to the documents.
-        pii_items (list[str]): List of PII items identified in the documents.
-        semaphore (asyncio.Semaphore): Semaphore to limit concurrency.
-
-    Returns:
-        OIFile: The document with masked content.
-    """
-    if not document or not file_ids or not pii_items or not semaphore:
-        return document
-
-    content = document.get_content()
-
-    async with semaphore:
-        for file_id, pii in zip(file_ids, pii_items):
-            if document.get_id() == file_id:
-                for item in json.loads(pii):
-                    content.replace(item['text'], "*" * len(item['text']))
-
-    document.update_content(content)
-
-    return document
-
 async def chunk_document(
     document: OIFile,
-    semaphore: asyncio.Semaphore,
-    chunk_size: int = 1024,
-    chunk_overlap: int = 128,
-    model_name: str = "gpt-35-turbo",
+    chunk_size: int = CHUNK_SIZE,
+    chunk_overlap: int = CHUNK_OVERLAP,
 ) -> tuple:
     """Asynchronously chunk documents in parallel with limited concurrency"""
+    logger = get_logger()
+
     # Create text splitter in a thread to avoid blocking
     def create_splitter_and_split_text(text: str) -> tuple:
-        return tuple(RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-            encoding_name=model_name,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            is_separator_regex=False,
-            separators=("\n", ". ", "! ", "; ", "... ", " "),
+        return tuple(RecursiveCharacterTextSplitter(
+            chunk_size=1024,
+            chunk_overlap=128,
+            separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ": ", ", ", "... ", " ", ""],
+            is_separator_regex=False
         ).split_text(text))
 
     # Validate parameters
@@ -130,12 +98,10 @@ async def chunk_document(
     # Initialize the return value
     split_docs = []
 
-    # Use semaphore to limit concurrent processing
-    async with semaphore:
-        logger.info(f"Chunking document '{name}' with length {len(text)} characters")
+    logger.info(f"Chunking document '{name}' with length {len(text)} characters")
 
-        # Process the text
-        split_docs = await asyncio.to_thread(create_splitter_and_split_text, text)
+    # Process the text
+    split_docs = await asyncio.to_thread(create_splitter_and_split_text, text)
 
     num_chunks = len(split_docs)
     if num_chunks == 0:

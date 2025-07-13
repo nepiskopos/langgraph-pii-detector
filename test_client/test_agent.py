@@ -1,49 +1,98 @@
 #!/usr/bin/env python3
 """
-Agent Test Script
+Document PII Detection LangGraph Agent Test Script.
 
-This script tests the legal entity extraction agent using both synchronous and
-asynchronous clients from the langgraph-sdk. It can send multiple test DOCX files
+This script tests the document PII detection LangGraph agent using either a synchronous
+or an asynchronous client from the LangGraph SDK. It can send multiple test documents
 to evaluate extraction quality, response consistency, and server stability.
 
 Usage:
 1. Install required packages:
-    pip install langgraph-sdk
+   pip install asyncio langchain-community langchain-docling langgraph-sdk pypandoc
 
-2. Set your deployment URL and LangSmith API key:
-    - Update the DEPLOYMENT_URL and LANGSMITH_API_KEY variables below
-    - Or set them as environment variables before running the script
+2. Set your deployment and local file system paths.
 
-3. Run the script:
-    python test_agent.py
+3. Run the script using the command:
+    python test_agent.py [OPTIONS]
+
+    Options:
+    -a, --address: LangGraph server's IP address (default: 127.0.0.1)
+    -p, --port: LangGraph server's serving port (default: 2024)
+    -k, --key: LangSmith API access key (optional)
+    -s, --synchronous: Use synchronous client (default: False)
+    -t, --threadless: Use threadless client execution (default: False)
+    -d, --directory: Documents directory path (default: ../documents)
+    -f, --files: List of specific files to process (default: all files in the directory)
+
+    Example:
+    python test_agent.py -a 127.0.0.1 -p 2024 -k YOUR_API_KEY -s True -d path/to/documents/dir -f file1.pdf file2.docx
 """
-
+from langgraph_sdk import get_client, get_sync_client
+from typing import Any, Dict, List
+import argparse
 import asyncio
+import ipaddress
 import os
+import sys
 import time
 import uuid
-from langgraph_sdk import get_client, get_sync_client
 
 from filesystem_loader import load_local_documents
+from logger import get_logger
 
 
-async def test_client(files: list, asyncronous: bool=False, threadless: bool=False):
+async def test_client(url: str, port: int, api_key: str, files: List[Dict[str, Any]], syncronous: bool=False, threadless: bool=False):
     """Test client connection with one or more input files"""
-    print("=== PII Identification and Extraction Agent Test ===")
-    print(f"Deployment URL: {DEPLOYMENT_URL}")
+    logger.info("=== Document PII Detection Agent Test ===")
 
-    if len (files) == 1:
-        print("\n=== Testing Client with One Input File ===")
-    else:
-        print("\n=== Testing Client with Multiple Input File ===")
+    deployment_url = f"http://{url}:{port}"
+
+    logger.info(f"Sending {len(files)} files to the LangGraph deployment URL {deployment_url}:")
+    for file in files:
+        logger.info(f"- File {file.get('file', {}).get('id', '0')}: {file.get('file', {}).get('filename', 'Unknown')} ({file.get('file', {}).get('meta', {}).get('content_type', 'Unknown')})")
+
+    import json
+    print(json.dumps(test_files, indent=2))
 
     try:
         client = None
         thread_id = None
 
-        if asyncronous:
+        if syncronous:
+            logger.info("Using synchronous client")
+
+            client = get_sync_client(url=deployment_url, api_key=api_key)
+
+            logger.info("✅ Synchronous client created successfully")
+
+            if not threadless:
+                thread = client.threads.create(
+                    thread_id=str(uuid.uuid4()),
+                )
+                thread_id = thread["thread_id"]
+
+            # Get the start time for response time calculation
+            start_time = time.time()
+
+            full_response = client.runs.wait(
+                thread_id,
+                "agent",    # Name of assistant (defined in langgraph.json)
+                input={
+                    'files': files,
+                },
+            )
+
+            # Calculate and display response time
+            duration = time.time() - start_time
+            logger.info("✅ Synchronous client completed successfully")
+            logger.info(f"Response time: {duration:.2f} seconds")
+            logger.info(100*"=")
+            logger.info("Result:", full_response)
+            logger.info(100*"=")
+        else:
             print("Using asynchronous client")
-            client = get_client(url=DEPLOYMENT_URL, api_key=LANGSMITH_API_KEY)
+
+            client = get_client(url=deployment_url, api_key=api_key)
 
             print("✅ Asynchronous client created successfully")
 
@@ -66,72 +115,48 @@ async def test_client(files: list, asyncronous: bool=False, threadless: bool=Fal
 
             # Calculate and display response time
             duration = time.time() - start_time
-            print(f"Response time: {duration:.2f} seconds")
-            print(100*"=")
-            print("Result:", full_response)
-            print(100*"=")
-        else:
-            print("Using synchronous client")
-            client = get_sync_client(url=DEPLOYMENT_URL, api_key=LANGSMITH_API_KEY)
-
-            print("✅ Synchronous client created successfully")
-
-            if not threadless:
-                thread = client.threads.create(
-                    thread_id=str(uuid.uuid4()),
-                )
-                thread_id = thread["thread_id"]
-
-            # Get the start time for response time calculation
-            start_time = time.time()
-
-            full_response = client.runs.wait(
-                thread_id,
-                "agent",    # Name of assistant (defined in langgraph.json)
-                input={
-                    'files': files,
-                },
-            )
-
-            # Calculate and display response time
-            duration = time.time() - start_time
+            print("✅ Asynchronous client completed successfully")
             print(f"Response time: {duration:.2f} seconds")
             print(100*"=")
             print("Result:", full_response)
             print(100*"=")
 
     except Exception as e:
-        print(f"❌ Test failed: {e}")
+        logger.info(f"❌ Test failed: {e}")
         return False
 
     return True
 
 if __name__ == "__main__":
-    # Configuration
-    # You can set these as environment variables or update them directly here
-    LANGSMITH_API_KEY = os.environ.get("LANGSMITH_API_KEY", "")
-    DEPLOYMENT_URL = os.environ.get("DEPLOYMENT_URL", "http://localhost:2024")
-    USE_ASYNC_CLIENT = os.environ.get("USE_ASYNC_CLIENT", "true").casefold() == 'true' # Set to False to run synchronously
-    USE_THREADLESS_CLIENT = os.environ.get("USE_THREADLESS_CLIENT", "false").casefold() == 'true'  # Set to False to run without threads
+    parser = argparse.ArgumentParser(description='PII Detection LangGraph Agent Test Script')
+    parser.add_argument("-a", "--address", help="LangGraph server's IP address", type=str, default="127.0.0.1")
+    parser.add_argument("-p", "--port", help="LangGraph server's serving port", type=int, default=2024)
+    parser.add_argument("-k", "--key", help="LangSmith API access key", type=str, required=False)
+    parser.add_argument("-s", "--synchronous", help="Use synchronous client", type=bool, default=False)
+    parser.add_argument("-t", "--threadless", help="Use threadless client execution", type=bool, default=False)
+    parser.add_argument("-d", "--directory", help="Documents directory path", type=str, default="../documents")
+    parser.add_argument("-f", "--files", help="List of specific files to process", type=str, nargs='+', default=[])
+    args = parser.parse_args()
 
-    # Test PDF files (add paths to your test files)
-    TEST_FILES_DIR = "docx_files"
-    TEST_SAMPLE_FILES = [
-        # "1.docx",
-        # "2.docx",
-        # "3.docx",
-        # "4.docx",
-    ]
+    try:
+        ipaddress.ip_address(args.address)
+    except ValueError:
+        sys.exit(f"Wrong IP address: {args.address}")
+    if args.port < 0 or args.port > 65535:
+        sys.exit(f"Wrong serving port: {args.port}")
+    if not os.path.exists(args.directory) or not os.path.isdir(args.directory):
+        sys.exit(f"Wrong path to directory with documents: {args.directory}")
 
-    test_files = load_local_documents(TEST_FILES_DIR)
+    test_files = load_local_documents(args.directory)
 
-    if TEST_SAMPLE_FILES:
-        body_files = [file for file in test_files if file.name in TEST_SAMPLE_FILES]
+    if args.files:
+        test_files = [file for file in test_files if file.get("file", {}).get("filename", "") in args.files]
 
     if not test_files:
-        print("❌ ERROR: No test files found in the specified directory.")
+        sys.exit(f"No test files found in directory {args.directory}.")
 
-    print(f"Found {len(test_files)} test files")
+    logger = get_logger("test_agent")
 
-    # Run the async run_app function
-    asyncio.run(test_client(test_files, asyncronous=USE_ASYNC_CLIENT, threadless=USE_THREADLESS_CLIENT))
+    logger.info(f"Found {len(test_files)} test files")
+
+    asyncio.run(test_client(args.address, args.port, args.key, test_files, syncronous=args.synchronous, threadless=args.threadless))
