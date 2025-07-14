@@ -175,6 +175,7 @@ async def _map_file_partial_pii(state: OverallState) -> ReduceState:
             Send("combine_file_pii_items", {
                 "document_id": file_id,
                 "partial_pii_items": pii_items,
+                "collected_pii_items": state.get("collected_pii_items", {}),
             })
         )
 
@@ -186,6 +187,7 @@ async def _combine_file_pii_items(state: ReduceState) -> OverallState:
 
     file_id = state.get("document_id", "")
     pii_items = state.get("partial_pii_items", [])
+    existing_file_pii = state.get("collected_pii_items", {})
 
     if file_id and pii_items:
         logger.debug(f"Combining partially identified PII items for document with ID {file_id} into a final list of identified PII...")
@@ -219,14 +221,16 @@ async def _combine_file_pii_items(state: ReduceState) -> OverallState:
             pii = json.loads(content)
 
             if pii and isinstance(pii, list):
-                results[file_id] = content
+                combined_pii = json.loads(existing_file_pii.get(file_id, '[]')) + pii
 
-                logger.info(f"Combined identified PII for document with ID {file_id} into a list of {len(pii)} PII items")
+                results[file_id] = json.dumps(combined_pii)
+
+                logger.info(f"Combined identified PII for document with ID {file_id} into a list of {len(combined_pii)} PII items")
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to combined identified PII for document with ID {file_id} into a list of PII items")
+            logger.error(f"Failed to combine identified PII for document with ID {file_id} into a list of PII items")
         except Exception as e:
-            logger.error(f"Failed to combined identified PII for document with ID {file_id} into a list of PII items")
+            logger.error(f"Failed to combine identified PII for document with ID {file_id} into a list of PII items")
 
     return {'collected_pii_items': results}
 

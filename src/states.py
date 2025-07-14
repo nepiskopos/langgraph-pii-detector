@@ -49,3 +49,4 @@ class ReduceState(TypedDict):
     """State for the reduce node that contains a list of PII items to be combined."""
     document_id: str
     partial_pii_items: List[str]
+    collected_pii_items: Dict[str, str]
